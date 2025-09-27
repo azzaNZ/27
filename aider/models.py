@@ -12,6 +12,7 @@ from typing import Optional
 import json5
 import yaml
 from PIL import Image
+import requests
 
 from aider import urls
 from aider.dump import dump  # noqa: F401
@@ -511,14 +512,21 @@ def get_model_flexible(model, content):
 
 
 def get_model_info(model):
-    if not litellm._lazy_module:
-        cache_dir = Path.home() / ".aider" / "caches"
-        cache_file = cache_dir / "model_prices_and_context_window.json"
+    cache_dir = Path.home() / ".aider" / "caches"
+    use_cache = True
+    try:
         cache_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        use_cache = False
+        print(f"Warning: Failed to create cache directory {cache_dir}: {e}")
 
+    if use_cache:
+        cache_file = cache_dir / "model_prices_and_context_window.json"
         current_time = time.time()
         cache_age = (
-            current_time - cache_file.stat().st_mtime if cache_file.exists() else float("inf")
+            current_time - cache_file.stat().st_mtime
+            if cache_file.exists()
+            else float("inf")
         )
 
         if cache_age < 60 * 60 * 24:
@@ -530,18 +538,20 @@ def get_model_info(model):
             except Exception as ex:
                 print(str(ex))
 
-        import requests
-
-        try:
-            response = requests.get(model_info_url, timeout=5)
-            if response.status_code == 200:
-                content = response.json()
-                cache_file.write_text(json.dumps(content, indent=4))
-                res = get_model_flexible(model, content)
-                if res:
-                    return res
-        except Exception as ex:
-            print(str(ex))
+    try:
+        response = requests.get(model_info_url, timeout=5)
+        if response.status_code == 200:
+            content = response.json()
+            if use_cache:
+                try:
+                    cache_file.write_text(json.dumps(content, indent=4))
+                except OSError as e:
+                    print(f"Warning: Failed to write to cache file {cache_file}: {e}")
+            res = get_model_flexible(model, content)
+            if res:
+                return res
+    except Exception as ex:
+        print(str(ex))
 
     # If all else fails, do it the slow way...
     try:
