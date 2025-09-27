@@ -512,31 +512,43 @@ def get_model_flexible(model, content):
 
 def get_model_info(model):
     if not litellm._lazy_module:
+        use_cache = True
         cache_dir = Path.home() / ".aider" / "caches"
-        cache_file = cache_dir / "model_prices_and_context_window.json"
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            print(f"Warning: Failed to create cache directory {cache_dir}: {e}")
+            use_cache = False
 
-        current_time = time.time()
-        cache_age = (
-            current_time - cache_file.stat().st_mtime if cache_file.exists() else float("inf")
-        )
+        if use_cache:
+            cache_file = cache_dir / "model_prices_and_context_window.json"
+            current_time = time.time()
+            cache_age = (
+                current_time - cache_file.stat().st_mtime
+                if cache_file.exists()
+                else float("inf")
+            )
 
-        if cache_age < 60 * 60 * 24:
-            try:
-                content = json.loads(cache_file.read_text())
-                res = get_model_flexible(model, content)
-                if res:
-                    return res
-            except Exception as ex:
-                print(str(ex))
+            if cache_age < 60 * 60 * 24:
+                try:
+                    content = json.loads(cache_file.read_text())
+                    res = get_model_flexible(model, content)
+                    if res:
+                        return res
+                except Exception as ex:
+                    print(str(ex))
 
+    if use_cache:
         import requests
 
         try:
             response = requests.get(model_info_url, timeout=5)
             if response.status_code == 200:
                 content = response.json()
-                cache_file.write_text(json.dumps(content, indent=4))
+                try:
+                    cache_file.write_text(json.dumps(content, indent=4))
+                except OSError as e:
+                    print(f"Warning: Failed to write to cache file {cache_file}: {e}")
                 res = get_model_flexible(model, content)
                 if res:
                     return res
